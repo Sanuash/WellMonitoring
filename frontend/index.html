@@ -265,7 +265,7 @@
                 const tr = document.createElement('tr');
 
                 // Определяем класс для строки в зависимости от вероятности:
-                // если вероятность >= 75% – красный, если >= 50% – желтый
+                // если вероятность >= 50% – красный, если >= 25% – желтый
                 if (well.probability >= 0.5) {
                     tr.classList.add('high-risk');
                 } else if (well.probability >= 0.25) {
