@@ -60,7 +60,6 @@ def open_data(path):
 
     well_column = "№ скв"
     # Группируем по скважинам и заполняем пропуски медианой по группе.
-    # Если в группе нет значащих значений, оставляем без изменений, чтобы избежать предупреждения "Mean of empty slice".
     data.iloc[:, 1:] = data.groupby(well_column).transform(
         lambda x: x.fillna(x.median()) if x.count().all() > 0 else x
     )
@@ -76,7 +75,6 @@ def open_data(path):
 
     return data
 
-# При старте приложения не пытаемся загружать данные, если DATA_PATH пустой или файл не существует.
 if DATA_PATH and os.path.exists(DATA_PATH):
     try:
         data_df = open_data(DATA_PATH)
