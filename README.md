@@ -26,10 +26,10 @@
    ```bash
    python -m venv venv
    source venv/bin/activate  # для macOS/Linux
-   venv\Scripts\activate     # для Windows
-   Установите зависимости:
-   pip install -r requirements.txt
-   Запустите сервер:
-   uvicorn backend.main:app --reload
-   Откройте браузер и перейдите на:
-   http://localhost:8000
+   venv\Scripts\activate     # для Windows```
+2. **Установите зависимости:**
+   ```pip install -r requirements.txt```
+3. **Запустите сервер:**
+   ```uvicorn backend.main:app --reload```
+4. **Откройте браузер и перейдите на:**
+   ```http://localhost:8000```
