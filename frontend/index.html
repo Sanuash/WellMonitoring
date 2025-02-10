@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Предсказание пескопроявления</title>
+    <!-- Подключаем favicon (иконка приложения) -->
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+            margin: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #343a40;
+        }
+
+        /* Стили для контейнера загрузки файла */
+        #uploadContainer {
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        #uploadContainer input[type="file"] {
+            padding: 8px;
+            font-size: 1rem;
+        }
+
+        #uploadContainer button {
+            padding: 8px 16px;
+            font-size: 1rem;
+            border: none;
+            border-radius: 4px;
+            background-color: #343a40;
+            color: #fff;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        #uploadStatus {
+            margin-top: 10px;
+            font-size: 1rem;
+            color: green;
+        }
+
+        /* Скрываем основной контент до загрузки файла */
+        #mainContent {
+            display: none;
+        }
+
+        /* Контейнер для элементов фильтрации */
+        .filter-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-container input,
+        .filter-container select {
+            padding: 8px;
+            font-size: 1rem;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 0 auto;
+            background: #ffffff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        th,
+        td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: center;
+        }
+
+        th {
+            background-color: #343a40;
+            color: #ffffff;
+            font-size: 1rem;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+
+        /* Оформление строк в зависимости от вероятности */
+        .medium-risk {
+            background-color: #ffffcc !important;
+            /* светло-жёлтый */
+        }
+
+        .high-risk {
+            background-color: #ffcccc !important;
+            /* светло-красный */
+        }
+
+        @media (max-width: 768px) {
+
+            th,
+            td {
+                padding: 8px;
+                font-size: 0.9rem;
+            }
+
+            .filter-container {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Предсказание пескопроявления</h1>
+
+    <!-- Контейнер для загрузки файла с данными -->
+    <div id="uploadContainer">
+        <p>Выберите XLS-файл с данными для анализа:</p>
+        <form id="uploadForm">
+            <input type="file" id="dataFile" accept=".xls" required>
+            <button type="submit">Загрузить файл</button>
+        </form>
+        <div id="uploadStatus"></div>
+    </div>
+
+    <!-- Основное содержимое, которое показывается после загрузки файла -->
+    <div id="mainContent">
+        <!-- Блок фильтров: поиск по номеру скважины и выбор куста -->
+        <div class="filter-container">
+            <input type="text" id="searchInput" placeholder="Поиск по номеру скважины" onkeyup="applyFilters()" />
+            <select id="kustFilter" onchange="applyFilters()">
+                <option value="all">Все кусты</option>
+            </select>
+        </div>
+
+        <!-- Таблица с данными -->
+        <table id="wellsTable">
+            <thead>
+                <tr>
+                    <th>Куст</th>
+                    <th>Номер скважины</th>
+                    <th>Дебит жидкости</th>
+                    <th>Газовый фактор</th>
+                    <th>Затрубное давление (Pзатр)</th>
+                    <th>Забойное давление (Pзаб)</th>
+                    <th>Динамический уровень</th>
+                    <th>Вероятность пескопроявления</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Здесь будут динамически создаваться строки таблицы -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Глобальная переменная для хранения загруженных данных
+        let allWells = [];
+
+        // Обработка формы загрузки файла
+        document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById("dataFile");
+            if (!fileInput.files.length) return;
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                document.getElementById("uploadStatus").textContent = "Файл " + result.filename + " успешно загружен!";
+                // Скрываем форму загрузки и показываем основной контент
+                document.getElementById("uploadContainer").style.display = "none";
+                document.getElementById("mainContent").style.display = "block";
+                // Загружаем данные для анализа
+                loadWells();
+            } catch (error) {
+                console.error('Ошибка загрузки файла:', error);
+                document.getElementById("uploadStatus").textContent = "Ошибка загрузки файла.";
+            }
+        });
+
+        // Функция загрузки данных с API (/wells)
+        async function loadWells() {
+            try {
+                const response = await fetch('/wells');
+                const data = await response.json();
+                allWells = data;
+                populateKustFilter(data);
+                applyFilters(); // применяем фильтры (в том числе сортировку)
+            } catch (error) {
+                console.error('Ошибка загрузки данных:', error);
+            }
+        }
+
+        // Функция для заполнения выпадающего списка уникальными значениями поля "kust"
+        function populateKustFilter(data) {
+            const kustFilter = document.getElementById("kustFilter");
+            // Собираем уникальные значения "kust"
+            let kustSet = new Set();
+            data.forEach(well => {
+                if (well.kust !== undefined && well.kust !== null) {
+                    kustSet.add(well.kust);
+                }
+            });
+
+            // Очищаем список (оставляем опцию "Все кусты")
+            kustFilter.innerHTML = '<option value="all">Все кусты</option>';
+
+            Array.from(kustSet).sort().forEach(kust => {
+                const option = document.createElement('option');
+                option.value = kust;
+                option.textContent = kust;
+                kustFilter.appendChild(option);
+            });
+        }
+
+        // Функция, которая применяет фильтры и отрисовывает таблицу
+        function applyFilters() {
+            let filteredData = allWells;
+            const searchValue = document.getElementById("searchInput").value.toLowerCase().trim();
+            const selectedKust = document.getElementById("kustFilter").value;
+
+            // Фильтр по номеру скважины (поле n_sk)
+            if (searchValue) {
+                filteredData = filteredData.filter(item => {
+                    return String(item.n_sk).toLowerCase().includes(searchValue);
+                });
+            }
+
+            // Фильтр по кусту (поле kust)
+            if (selectedKust !== "all") {
+                filteredData = filteredData.filter(item => {
+                    return String(item.kust) === selectedKust;
+                });
+            }
+
+            // Сортировка по убыванию вероятности пескопроявления
+            filteredData.sort((a, b) => b.probability - a.probability);
+
+            renderTable(filteredData);
+        }
+
+        // Функция отрисовки таблицы
+        function renderTable(data) {
+            const tbody = document.querySelector('#wellsTable tbody');
+            tbody.innerHTML = '';
+
+            data.forEach(well => {
+                const tr = document.createElement('tr');
+
+                // Определяем класс для строки в зависимости от вероятности:
+                // если вероятность >= 75% – красный, если >= 50% – желтый
+                if (well.probability >= 0.5) {
+                    tr.classList.add('high-risk');
+                } else if (well.probability >= 0.25) {
+                    tr.classList.add('medium-risk');
+                }
+
+                // Создаем ячейки для каждого столбца
+                const tdKust = document.createElement('td');
+                tdKust.textContent = (well.kust !== undefined && well.kust !== null) ? well.kust : "-";
+
+                const tdWellNum = document.createElement('td');
+                tdWellNum.textContent = (well.n_sk !== undefined) ? well.n_sk : "-";
+
+                const tdQteor = document.createElement('td');
+                tdQteor.textContent = (well.q_teor !== undefined) ? well.q_teor : "-";
+
+                const tdGasFactor = document.createElement('td');
+                tdGasFactor.textContent = (well.gas_factor !== undefined) ? well.gas_factor : "-";
+
+                const tdPu = document.createElement('td');
+                tdPu.textContent = (well.p_u !== undefined) ? well.p_u : "-";
+
+                const tdPzab = document.createElement('td');
+                tdPzab.textContent = (well.p_zab !== undefined) ? well.p_zab : "-";
+
+                const tdTemp = document.createElement('td');
+                tdTemp.textContent = (well.temp !== undefined) ? well.temp : "-";
+
+                const tdProbability = document.createElement('td');
+                tdProbability.textContent = (well.probability * 100).toFixed(2) + '%';
+
+                tr.appendChild(tdKust);
+                tr.appendChild(tdWellNum);
+                tr.appendChild(tdQteor);
+                tr.appendChild(tdGasFactor);
+                tr.appendChild(tdPu);
+                tr.appendChild(tdPzab);
+                tr.appendChild(tdTemp);
+                tr.appendChild(tdProbability);
+
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+
+</html>

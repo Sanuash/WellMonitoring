@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+pandas
+numpy
+catboost
+python-multipart
+xlrd==2.0.1
