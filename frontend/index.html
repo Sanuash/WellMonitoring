@@ -3,9 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Предсказание пескопроявления</title>
+    <title>WellMonitoring</title>
     <!-- Подключаем favicon (иконка приложения) -->
-    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+    <link rel="icon" href="/static/favicon1.ico" type="image/x-icon">
     <style>
         body {
             font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -140,7 +140,8 @@
             <input type="text" id="searchInput" placeholder="Поиск по номеру скважины" onkeyup="applyFilters()" />
             <select id="kustFilter" onchange="applyFilters()">
                 <option value="all">Все кусты</option>
-            </select>
+            </select>            
+            <button id="pauseBtn" onclick="toggleAutoUpdate()">Пауза</button>
         </div>
 
         <!-- Таблица с данными -->
@@ -149,11 +150,11 @@
                 <tr>
                     <th>Куст</th>
                     <th>Номер скважины</th>
-                    <th>Дебит жидкости</th>
-                    <th>Газовый фактор</th>
-                    <th>Затрубное давление (Pзатр)</th>
-                    <th>Забойное давление (Pзаб)</th>
-                    <th>Динамический уровень</th>
+                    <th>Дебит по жидкости, м3/&#8288;сут</th>
+                    <th>Дебит по нефти, м3/&#8288;сут</th>
+                    <th>Газовый фактор, м3/&#8288;т</th>
+                    <th>Затрубное давление (Pзатр), атм</th>
+                    <th>Забойное давление (Pзаб), атм</th>
                     <th>Вероятность пескопроявления</th>
                 </tr>
             </thead>
@@ -166,6 +167,26 @@
     <script>
         // Глобальная переменная для хранения загруженных данных
         let allWells = [];
+        let updateInterval = null; // Переменная для хранения идентификатора интервала
+        let autoUpdateEnabled = true;
+
+        // Функция для переключения автообновления
+        function toggleAutoUpdate() {
+            autoUpdateEnabled = !autoUpdateEnabled;
+            const btn = document.getElementById("pauseBtn");
+            if (autoUpdateEnabled) {
+                btn.textContent = "Пауза";
+                if (!updateInterval) {
+                    updateInterval = setInterval(loadWells, 3000);
+                }
+            } else {
+                btn.textContent = "Возобновить";
+                if (updateInterval) {
+                    clearInterval(updateInterval);
+                    updateInterval = null;
+                }
+            }
+        }
 
         // Обработка формы загрузки файла
         document.getElementById("uploadForm").addEventListener("submit", async (e) => {
@@ -187,8 +208,12 @@
                 // Скрываем форму загрузки и показываем основной контент
                 document.getElementById("uploadContainer").style.display = "none";
                 document.getElementById("mainContent").style.display = "block";
-                // Загружаем данные для анализа
-                loadWells();
+                // Загружаем данные для анализа и запускаем автообновление
+                await loadWells();
+                // Если интервал еще не запущен, запускаем его
+                if (!updateInterval && autoUpdateEnabled) {
+                    updateInterval = setInterval(loadWells, 3000);
+                }
             } catch (error) {
                 console.error('Ошибка загрузки файла:', error);
                 document.getElementById("uploadStatus").textContent = "Ошибка загрузки файла.";
@@ -300,16 +325,17 @@
                 tr.appendChild(tdKust);
                 tr.appendChild(tdWellNum);
                 tr.appendChild(tdQteor);
+                tr.appendChild(tdTemp);
                 tr.appendChild(tdGasFactor);
                 tr.appendChild(tdPu);
                 tr.appendChild(tdPzab);
-                tr.appendChild(tdTemp);
                 tr.appendChild(tdProbability);
 
                 tbody.appendChild(tr);
             });
         }
     </script>
+
 </body>
 
 </html>
