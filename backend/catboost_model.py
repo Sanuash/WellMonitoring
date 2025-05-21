@@ -3,7 +3,6 @@
 import pandas as pd
 from catboost import CatBoostClassifier
 
-# Укажите путь к файлу с моделью
 MODEL_PATH = "catboost_model.cbm"
 
 # Загружаем модель CatBoost
