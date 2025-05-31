@@ -1,11 +1,13 @@
-import threading
-import webbrowser
+# backend/main.py
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from backend import data_handler, catboost_model
 import math, time, asyncio
 import shutil
+import json, os
+from fastapi import Body
 
 app = FastAPI(title="Well Monitoring")
 
@@ -21,12 +23,12 @@ def simulate_dynamic_value(base_value, amplitude, period):
     амплитуды и периода колебаний.
     """
     t = time.time()
-    delta = amplitude * math.sin(2 * math.pi * (t % period) / period)
-    return base_value + delta
+    delta = abs(amplitude * math.sin(2 * math.pi * (t % period) / period))
+    return round(base_value + delta, 4)
 
 async def update_wells_dynamic():
     """
-    Фоновая задача, которая обновляет динамические параметры для каждой скважины каждые 3 секунды.
+    Фоновая задача, которая обновляет динамические параметры для каждой скважины каждые 10 секунд.
     Для каждой скважины берём базовые значения из загруженных данных (data_handler.get_all_wells())
     и пересчитываем динамические значения.
     """
@@ -47,11 +49,11 @@ async def update_wells_dynamic():
             oil_debit_base = well_data.get("Фактический режим Q нефти", 0)
 
             # Вычисляем динамические значения
-            q_teor_dynamic = simulate_dynamic_value(q_teor_base, amplitude=5, period=90)
-            gas_factor_dynamic = simulate_dynamic_value(gas_factor_base, amplitude=7, period=80)
-            p_zatr_dynamic = simulate_dynamic_value(p_zatr_base, amplitude=3, period=80)
-            p_zab_dynamic = simulate_dynamic_value(p_zab_base, amplitude=2, period=90)
-            oil_debit_dynamic = simulate_dynamic_value(oil_debit_base, amplitude=2, period=75)
+            q_teor_dynamic = simulate_dynamic_value(q_teor_base, amplitude=1.5, period=60)
+            gas_factor_dynamic = simulate_dynamic_value(gas_factor_base, amplitude=5, period=70)
+            p_zatr_dynamic = simulate_dynamic_value(p_zatr_base, amplitude=1, period=80)
+            p_zab_dynamic = simulate_dynamic_value(p_zab_base, amplitude=0.5, period=90)
+            oil_debit_dynamic = simulate_dynamic_value(oil_debit_base, amplitude=0.25, period=50)
 
             # Сохраняем динамические значения для данной скважины
             wells_dynamic[well_id] = {
@@ -61,11 +63,34 @@ async def update_wells_dynamic():
                 "p_zab": p_zab_dynamic,
                 "oil_debit": oil_debit_dynamic,
             }
-        await asyncio.sleep(3)  # обновление каждые 3 секунды
+        await asyncio.sleep(3)  # обновление каждые 10 секунд
+
+SAVED_WELLS_FILE = "saved_wells.json"
+
+def load_saved_wells():
+    if os.path.exists(SAVED_WELLS_FILE):
+        with open(SAVED_WELLS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_well_data(well):
+    wells = load_saved_wells()
+    wells.append(well)
+    with open(SAVED_WELLS_FILE, "w", encoding="utf-8") as f:
+        json.dump(wells, f)
+
+@app.get("/saved_wells")
+def get_saved_wells():
+    return load_saved_wells()
+
+@app.post("/save_well")
+async def save_well(well: dict = Body(...)):
+    save_well_data(well)
+    return {"status": "ok"}
 
 @app.on_event("startup")
 async def startup_event():
-    threading.Timer(1, lambda: webbrowser.open("http://127.0.0.1:8000/")).start()
+    # Запускаем фоновую задачу обновления динамических параметров
     asyncio.create_task(update_wells_dynamic())
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,6 +104,15 @@ def read_index():
         return HTMLResponse(content=html_content, status_code=200)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Ошибка загрузки страницы: " + str(e))
+    
+@app.get("/map", response_class=HTMLResponse)
+def read_map():
+    try:
+        with open("frontend/map.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content, status_code=200)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Ошибка загрузки карты: " + str(e))
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -86,7 +120,7 @@ async def upload_file(file: UploadFile = File(...)):
     Принимает файл с данными, сохраняет его и перезагружает данные.
     """
     try:
-        upload_path = "uploaded_data.xls"  
+        upload_path = "uploaded_data.xls"  # имя файла, куда сохраняем загруженный файл
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         # Обновляем путь к файлу в data_handler
@@ -97,32 +131,38 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Ошибка загрузки файла: " + str(e))
 
 @app.get("/predict/{well_id}")
-def predict_well(well_id: int):
-    """
-    Получает данные скважины по ID из CSV (XLS), объединяет с динамическими данными и рассчитывает вероятность.
-    """
-    well = data_handler.get_well_by_id(well_id)
+def predict_well(well_id: str):  # пусть будет str, универсально
+    well_id_stripped = well_id.strip()
+    try:
+        well_id_int = int(well_id_stripped)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный формат номера скважины")
+
+    well = data_handler.get_well_by_id(well_id_int)
     if not well:
         raise HTTPException(status_code=404, detail="Скважина не найдена")
-    
-    # Подменяем статические показатели динамическими значениями, если они есть
-    dynamic = wells_dynamic.get(well_id, {})
+
+    # Вставляем dynamic, если есть
+    dynamic = wells_dynamic.get(well_id_int, {})
     if dynamic:
         well["Фактический режим Q жид- кости"] = dynamic.get("q_teor", well.get("Фактический режим Q жид- кости"))
         well["Фактический режим ГФ пг"] = dynamic.get("gas_factor", well.get("Фактический режим ГФ пг"))
         well["P затр"] = dynamic.get("p_zatr", well.get("P затр"))
         well["Фактический режим Р заб"] = dynamic.get("p_zab", well.get("Фактический режим Р заб"))
         well["Фактический режим Q нефти"] = dynamic.get("oil_debit", well.get("Фактический режим Q нефти"))
-    
+
+    # 👇 Приводим "№ скв" к строке — модель ожидает string категориальную переменную
+    well["№ скв"] = str(well_id_int)
+
     probability = catboost_model.predict(well)
-    return {"well_id": well_id, "probability": probability}
+    return {"well_id": well_id_int, "probability": probability}
 
 @app.get("/wells")
 def get_all_wells():
     """
     Возвращает список всех скважин с рассчитанной вероятностью пескопроявления.
-    Для каждого объекта объединяются статические данные из CSV (XLS) и динамические значения,
-    обновляемые каждые 3 секунды.
+    Для каждого объекта объединяются статические данные из CSV и динамические значения,
+    обновляемые каждые 10 секунд.
     """
     wells_df = data_handler.get_all_wells()
     wells_list = []
