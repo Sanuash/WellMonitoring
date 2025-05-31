@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Разметка скважин на карте</title>
+    <!-- Подключаем стили Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            width: 100%;
+            height: 100vh;
+            max-width: 100%;
+            aspect-ratio: 16 / 9.5;
+        }
+
+        #wellList {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            z-index: 1000;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <div id="wellList">
+        <h4>Добавленные скважины:</h4>
+        <pre id="listOutput"></pre>
+    </div>
+
+    <!-- Подключаем Leaflet -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // Задайте реальные границы для вашего PNG-изображения:
+        const imageBounds = [[68.462108, 79.666128], [68.555239, 80.113862]];
+
+        // Инициализация карты
+        const map = L.map('map', {
+            center: [68.508673, 79.889995],
+            zoom: 12
+        });
+
+        // Загружаем локальное PNG-изображение как базовый слой.
+        const imageUrl = '/static/map.png';
+        L.imageOverlay(imageUrl, imageBounds).addTo(map);
+
+        // Слой для меток скважин
+        const wellsLayer = L.layerGroup().addTo(map);
+
+        // Массив для хранения добавленных скважин (номер, координаты, probability)
+        let addedWells = [];
+
+        // Массив с данными ML модели (номер скважины и рассчитанная вероятность)
+        let wellsData = [];
+
+        // Функция для получения данных модели (/wells)
+        async function fetchWellsData() {
+            try {
+                const response = await fetch('/wells');
+                wellsData = await response.json();
+            } catch (error) {
+                console.error('Ошибка загрузки данных скважин:', error);
+            }
+        }
+
+        // Функция для загрузки сохранённых скважин, с запросом вероятности для каждой
+        async function loadSavedWells() {
+            try {
+                const response = await fetch('/saved_wells');
+                const saved = await response.json(); // Объекты: { "n_sk": "290", "lat": ..., "lng": ... }
+                // Для каждой сохранённой скважины запрашиваем вероятность у модели
+                for (let well of saved) {
+                    const predictResponse = await fetch(`/predict/${well.n_sk}`);
+                    const predictData = await predictResponse.json(); // Должен вернуть, например, { "well_id": 290, "probability": 0.35 }
+                    well.probability = parseFloat(predictData.probability);
+                    addWellMarker(L.latLng(well.lat, well.lng), well.n_sk, well.probability);
+                }
+                addedWells = saved;
+                updateWellList();
+            } catch (error) {
+                console.error('Ошибка загрузки сохранённых скважин:', error);
+            }
+        }
+
+        // Функция для обновления списка добавленных скважин (для вывода)
+        function updateWellList() {
+            document.getElementById('listOutput').textContent = JSON.stringify(addedWells, null, 2);
+        }
+
+        // Функция для определения цвета маркера по вероятности
+        function getMarkerColor(probability) {
+            if (probability < 0.4) return '#00FF00';    // Ярко-зеленый (Lime)
+            if (probability < 0.5) return '#FFD700';     // Золотой (Gold)
+            if (probability < 0.6) return '#FFA500';     // Оранжевый
+            if (probability < 0.7) return '#FF4500';     // Оранжево-красный (OrangeRed)
+            if (probability < 0.8) return '#FF0000';     // Красный
+            return '#8B0000';                            // Темно-красный (DarkRed)
+        }
+
+
+        // Функция для добавления маркера с текстом (номером скважины)
+        function addWellMarker(latlng, wellNumber, probability) {
+            // Если вероятность не передана, пытаемся получить её из wellsData (это пригодится при добавлении новых скважин)
+            if (typeof probability === "undefined") {
+                const wellRecord = wellsData.find(item => String(item.n_sk) === wellNumber.trim());
+                if (wellRecord) {
+                    probability = parseFloat(wellRecord.probability);
+                } else {
+                    probability = 0;
+                }
+            }
+
+            // Создаем кастомный DivIcon с номером скважины
+            const icon = L.divIcon({
+                html: `<div style="
+                            background: ${getMarkerColor(probability)};
+                            border-radius: 50%;
+                            width: 24px;
+                            height: 24px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: white;
+                            font-weight: bold;
+                            border: 2px solid #333;
+                            ">${wellNumber}</div>`,
+                className: '',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+
+            // Создаем маркер с zIndexOffset зависящим от вероятности
+            const marker = L.marker(latlng, {
+                icon: icon,
+                zIndexOffset: probability * 1000
+            }).bindPopup(`Скважина №${wellNumber}<br>Вероятность: ${(probability * 100).toFixed(2)}%`);
+
+            wellsLayer.addLayer(marker);
+        }
+
+        // Обработчик клика по карте для добавления новой скважины
+        map.on('click', async function (e) {
+            const wellNumber = prompt("Введите номер скважины, которую хотите добавить:");
+            if (!wellNumber) return;
+
+            // Ищем запись в wellsData
+            const wellRecord = wellsData.find(item => String(item.n_sk) === wellNumber.trim());
+            if (!wellRecord) {
+                alert("Скважина с таким номером не найдена в данных модели.");
+                return;
+            }
+
+            const probability = parseFloat(wellRecord.probability);
+            if (isNaN(probability)) {
+                alert("Неверное значение вероятности для этой скважины.");
+                return;
+            }
+
+            addWellMarker(e.latlng, wellNumber);
+
+            const newWell = {
+                n_sk: wellNumber,
+                lat: e.latlng.lat,
+                lng: e.latlng.lng
+            };
+            addedWells.push(newWell);
+            updateWellList();
+
+            try {
+                await fetch('/save_well', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newWell)
+                });
+            } catch (error) {
+                console.error('Ошибка сохранения скважины на сервере:', error);
+            }
+        });
+
+        // Инициализируем последовательную загрузку данных: сначала wellsData, затем сохранённые скважины
+        (async function initialize() {
+            await fetchWellsData();
+            await loadSavedWells();
+        })();
+    </script>
+</body>
+
+</html>
