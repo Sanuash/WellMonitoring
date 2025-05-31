@@ -3,9 +3,9 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>WellMonitoring</title>
+    <title>Предсказание пескопроявления</title>
     <!-- Подключаем favicon (иконка приложения) -->
-    <link rel="icon" href="/static/favicon1.ico" type="image/x-icon">
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <style>
         body {
             font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -140,8 +140,11 @@
             <input type="text" id="searchInput" placeholder="Поиск по номеру скважины" onkeyup="applyFilters()" />
             <select id="kustFilter" onchange="applyFilters()">
                 <option value="all">Все кусты</option>
-            </select>            
+            </select>
             <button id="pauseBtn" onclick="toggleAutoUpdate()">Пауза</button>
+            <button id="openMapButton" onclick="window.open('/map', '_blank')">
+                Карта месторождения
+            </button>
         </div>
 
         <!-- Таблица с данными -->
@@ -150,9 +153,9 @@
                 <tr>
                     <th>Куст</th>
                     <th>Номер скважины</th>
-                    <th>Дебит по жидкости, м3/&#8288;сут</th>
-                    <th>Дебит по нефти, м3/&#8288;сут</th>
-                    <th>Газовый фактор, м3/&#8288;т</th>
+                    <th>Дебит по жидкости, м3/сут</th>
+                    <th>Дебит по нефти, м3/сут</th>
+                    <th>Газовый фактор, м3/т</th>
                     <th>Затрубное давление (Pзатр), атм</th>
                     <th>Забойное давление (Pзаб), атм</th>
                     <th>Вероятность пескопроявления</th>
@@ -290,10 +293,10 @@
                 const tr = document.createElement('tr');
 
                 // Определяем класс для строки в зависимости от вероятности:
-                // если вероятность >= 50% – красный, если >= 25% – желтый
-                if (well.probability >= 0.5) {
+                // если вероятность >= 80% – красный, если >= 60% – желтый
+                if (well.probability >= 0.8) {
                     tr.classList.add('high-risk');
-                } else if (well.probability >= 0.25) {
+                } else if (well.probability >= 0.6) {
                     tr.classList.add('medium-risk');
                 }
 
